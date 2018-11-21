@@ -1,8 +1,9 @@
 import Vue from 'vue';
 import { Component } from 'vue-property-decorator';
 import ModalLayout from '../ModalLayout.vue';
-import { ObsTextInput, ObsListInput, ObsBoolInput }from 'components/obs/inputs';
+import { ObsBoolInput, ObsListInput, ObsTextInput } from 'components/obs/inputs';
 import { IObsInput, IObsListInput, IObsTextInputValue } from 'components/obs/inputs/ObsInput';
+import TwitchTagsInput from 'components/shared/inputs/TwitchTagsInput.vue';
 import { StreamInfoService } from 'services/stream-info';
 import { UserService } from '../../services/user';
 import { Inject } from '../../util/injector';
@@ -14,11 +15,10 @@ import { NavigationService } from 'services/navigation';
 import { CustomizationService } from 'services/customization';
 import { Multiselect } from 'vue-multiselect';
 import { $t } from 'services/i18n';
-import {
-  VideoEncodingOptimizationService,
-  IEncoderPreset
-} from 'services/video-encoding-optimizations';
+import { IEncoderPreset, VideoEncodingOptimizationService } from 'services/video-encoding-optimizations';
 import { IStreamlabsFacebookPage, IStreamlabsFacebookPages } from 'services/platforms/facebook';
+import { TwitchService } from '../../services/platforms/twitch';
+import { TwitchTag, TwitchTagWithLabel } from '../../services/platforms/twitch/tags';
 
 interface IMultiSelectProfiles {
   value: IEncoderPreset;
@@ -32,7 +32,8 @@ interface IMultiSelectProfiles {
     ObsTextInput,
     ObsListInput,
     ObsBoolInput,
-    Multiselect
+    Multiselect,
+    TwitchTagsInput
   }
 })
 export default class EditStreamInfo extends Vue {
@@ -43,6 +44,7 @@ export default class EditStreamInfo extends Vue {
   @Inject() navigationService: NavigationService;
   @Inject() customizationService: CustomizationService;
   @Inject() videoEncodingOptimizationService: VideoEncodingOptimizationService;
+  @Inject() twitchService: TwitchService;
 
   // UI State Flags
   searchingGames = false;
@@ -91,6 +93,10 @@ export default class EditStreamInfo extends Vue {
 
   facebookPages: IStreamlabsFacebookPages;
 
+  allTwitchTags: Array<TwitchTag> = null;
+
+  twitchTags: Array<TwitchTagWithLabel> = null;
+
   // Debounced Functions:
   debouncedGameSearch: (search: string) => void;
 
@@ -107,6 +113,10 @@ export default class EditStreamInfo extends Vue {
       // If the stream info pre-fetch failed, we should try again now
       this.refreshStreamInfo();
     }
+
+    if (this.isTwitch) {
+      this.allTwitchTags = await this.twitchService.getAllTags();
+    }
   }
 
   populateModels() {
@@ -118,12 +128,14 @@ export default class EditStreamInfo extends Vue {
         value: this.streamInfoService.state.channelInfo.game
       }
     ];
+
     if (this.facebookPages) {
       this.pageModel.value = this.facebookPages.page_id;
       this.pageModel.options = this.facebookPages.pages.map((page: IStreamlabsFacebookPage) => (
         { value: page.id, description: `${page.name} | ${page.category}` }
       ));
     }
+
     this.loadAvailableProfiles();
   }
 
@@ -159,7 +171,8 @@ export default class EditStreamInfo extends Vue {
         'Generic'
       );
 
-      this.areAvailableProfiles = availableProfiles.length > 0 || genericProfiles.length > 0;
+      this.areAvailableProfiles =
+        availableProfiles.length > 0 || genericProfiles.length > 0;
 
       if (this.areAvailableProfiles) {
         let profiles: IEncoderPreset[] = [];
@@ -175,7 +188,7 @@ export default class EditStreamInfo extends Vue {
         this.encoderProfile = {
           value: profiles[0],
           description: profiles[0].profile.description,
-          longDescription: profiles[0].profile.longDescription,
+          longDescription: profiles[0].profile.longDescription
         };
       }
     }
@@ -193,15 +206,20 @@ export default class EditStreamInfo extends Vue {
 
     if (this.doNotShowAgainModel.value) {
       alert(
-        $t('You will not be asked again to update your stream info when going live.  ') +
-        $t('You can re-enable this from the settings.')
+        $t(
+          'You will not be asked again to update your stream info when going live.  '
+        ) + $t('You can re-enable this from the settings.')
       );
 
       this.customizationService.setUpdateStreamInfoOnLive(false);
     }
 
     this.streamInfoService
-      .setStreamInfo(this.streamTitleModel.value, this.streamDescriptionModel.value, this.gameModel.value)
+      .setStreamInfo(
+        this.streamTitleModel.value,
+        this.streamDescriptionModel.value,
+        this.gameModel.value
+      )
       .then(success => {
         if (success) {
           if (this.midStreamMode) {
@@ -223,7 +241,7 @@ export default class EditStreamInfo extends Vue {
   }
 
   goLive() {
-    this.streamingService.startStreaming();
+    this.streamingService.startStreaming({ allTwitchTags: this.allTwitchTags, twitchTags: this.twitchTags });
     this.navigationService.navigate('Live');
     this.windowsService.closeChildWindow();
   }
@@ -237,6 +255,10 @@ export default class EditStreamInfo extends Vue {
     this.streamInfoService.refreshStreamInfo().then(() => {
       if (this.streamInfoService.state.channelInfo) this.populateModels();
     });
+  }
+
+  setTags(tags: Array<TwitchTagWithLabel>) {
+    this.twitchTags = tags;
   }
 
   get isTwitch() {
@@ -295,7 +317,7 @@ export default class EditStreamInfo extends Vue {
       multiselectArray.push({
         value: profile,
         description: profile.profile.description,
-        longDescription: profile.profile.longDescription,
+        longDescription: profile.profile.longDescription
       });
     });
     return multiselectArray;

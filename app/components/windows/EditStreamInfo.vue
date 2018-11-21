@@ -25,6 +25,7 @@
         :loading="searchingGames"
         @search-change="debouncedGameSearch"
         @input="onGameInput"/>
+      <TwitchTagsInput v-if="isTwitch" :tags="allTwitchTags" v-model="twitchTags" @input="setTags" />
       <ObsListInput v-if="isFacebook" :value="pageModel" @input="(pageId) => setFacebookPageId(pageId)" />
       <div v-if="areAvailableProfiles">
         <div class="input-container" v-if="isTwitch || isYoutube">
@@ -108,7 +109,7 @@
 <script lang="ts" src="./EditStreamInfo.vue.ts"></script>
 
 <style lang="less" scoped>
-@import "../../styles/index";
+@import '../../styles/index';
 
 .edit-stream-info-option-desc {
   height: 20px;

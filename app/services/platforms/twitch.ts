@@ -5,7 +5,7 @@ import { SettingsService } from 'services/settings';
 import { Inject } from 'util/injector';
 import { authorizedHeaders, handleErrors, requiresToken } from 'util/requests';
 import { UserService } from 'services/user';
-import { getAllTags, updateTags } from './twitch/tags';
+import { getAllTags, TwitchRequestHeaders, updateTags } from './twitch/tags';
 import { getUserStreams } from './twitch/streams';
 import { head } from 'fp-ts/lib/Array';
 import { StreamingContext } from '../streaming';
@@ -17,7 +17,7 @@ export class TwitchService extends Service implements IPlatformService {
 
   authWindowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 600,
-    height: 800
+    height: 800,
   };
 
   // Streamlabs Production Twitch OAuth Client ID
@@ -39,14 +39,22 @@ export class TwitchService extends Service implements IPlatformService {
     return this.userService.platform.id;
   }
 
+  getRawHeaders(authorized = false) {
+    const map: TwitchRequestHeaders = {
+      'Client-Id': this.clientId,
+      Accept: 'application/vnd.twitchtv.v5+json',
+      'Content-Type': 'application/json',
+    };
+
+    return authorized ? { ...map, Authorization: `OAuth ${this.oauthToken}` } : map;
+  }
+
   getHeaders(authorized = false): Headers {
     const headers = new Headers();
 
-    headers.append('Client-Id', this.clientId);
-    headers.append('Accept', 'application/vnd.twitchtv.v5+json');
-    headers.append('Content-Type', 'application/json');
-
-    if (authorized) headers.append('Authorization', `OAuth ${this.oauthToken}`);
+    Object.entries(this.getRawHeaders(authorized)).forEach(([key, value]) => {
+      headers.append(key, value);
+    });
 
     return headers;
   }
@@ -89,7 +97,7 @@ export class TwitchService extends Service implements IPlatformService {
   fetchRawChannelInfo() {
     const headers = this.getHeaders(true);
     const request = new Request('https://api.twitch.tv/kraken/channel', {
-      headers
+      headers,
     });
 
     return fetch(request)
@@ -105,7 +113,7 @@ export class TwitchService extends Service implements IPlatformService {
     return this.fetchRawChannelInfo().then(json => {
       return {
         title: json.status,
-        game: json.game
+        game: json.game,
       };
     });
   }
@@ -113,7 +121,9 @@ export class TwitchService extends Service implements IPlatformService {
   @requiresToken()
   fetchUserInfo() {
     const headers = this.getHeaders();
-    const request = new Request(`https://api.twitch.tv/helix/users?id=${this.twitchId}`, { headers });
+    const request = new Request(`https://api.twitch.tv/helix/users?id=${this.twitchId}`, {
+      headers,
+    });
 
     return fetch(request)
       .then(handleErrors)
@@ -129,7 +139,9 @@ export class TwitchService extends Service implements IPlatformService {
 
   fetchViewerCount(): Promise<number> {
     const headers = this.getHeaders();
-    const request = new Request(`https://api.twitch.tv/kraken/streams/${this.twitchId}`, { headers });
+    const request = new Request(`https://api.twitch.tv/kraken/streams/${this.twitchId}`, {
+      headers,
+    });
 
     return fetch(request)
       .then(handleErrors)
@@ -144,7 +156,7 @@ export class TwitchService extends Service implements IPlatformService {
     const request = new Request(`https://api.twitch.tv/kraken/channels/${this.twitchId}`, {
       method: 'PUT',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     });
 
     return fetch(request)
@@ -154,7 +166,9 @@ export class TwitchService extends Service implements IPlatformService {
 
   searchGames(searchString: string): Promise<IGame[]> {
     const headers = this.getHeaders();
-    const request = new Request(`https://api.twitch.tv/kraken/search/games?query=${searchString}`, { headers });
+    const request = new Request(`https://api.twitch.tv/kraken/search/games?query=${searchString}`, {
+      headers,
+    });
 
     return fetch(request)
       .then(handleErrors)
@@ -164,12 +178,14 @@ export class TwitchService extends Service implements IPlatformService {
 
   getChatUrl(mode: string) {
     const nightMode = mode === 'day' ? 'popout' : 'darkpopout';
-    return Promise.resolve(`https://twitch.tv/popout/${this.userService.platform.username}/chat?${nightMode}`);
+    return Promise.resolve(
+      `https://twitch.tv/popout/${this.userService.platform.username}/chat?${nightMode}`,
+    );
   }
 
   @requiresToken()
   getAllTags() {
-    return getAllTags(this.getHeaders(true));
+    return getAllTags(this.getRawHeaders(true));
   }
 
   searchCommunities(searchString: string) {
@@ -179,9 +195,9 @@ export class TwitchService extends Service implements IPlatformService {
       requests: [
         {
           indexName: 'community',
-          params: `query=${searchString}&page=0&hitsPerPage=50&numericFilters=&facets=*&facetFilters=`
-        }
-      ]
+          params: `query=${searchString}&page=0&hitsPerPage=50&numericFilters=&facets=*&facetFilters=`,
+        },
+      ],
     };
 
     const communitySearchUrl =
@@ -191,7 +207,7 @@ export class TwitchService extends Service implements IPlatformService {
     const request = new Request(communitySearchUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     });
 
     return fetch(request)
@@ -213,7 +229,6 @@ export class TwitchService extends Service implements IPlatformService {
     // Assume the first stream is the stream we want to set tags for
     head(streams)
       .map(stream => stream.id)
-      .map(updateTags(this.getHeaders(true))(context.twitchTags))
-
+      .map(updateTags(this.getHeaders(true))(context.twitchTags));
   }
 }
